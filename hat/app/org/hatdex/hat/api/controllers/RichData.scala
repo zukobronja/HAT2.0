@@ -36,7 +36,7 @@ import org.hatdex.hat.api.service.richData._
 import org.hatdex.hat.authentication.models._
 import org.hatdex.hat.authentication.{ HatApiAuthEnvironment, HatApiController, WithRole }
 import org.hatdex.hat.resourceManagement._
-import org.hatdex.hat.utils.HatBodyParsers
+import org.hatdex.hat.utils.{ HatBodyParsers, LoggingProvider }
 import play.api.libs.json.{ JsArray, JsValue, Json }
 import play.api.mvc._
 import play.api.{ Configuration, Logger }
@@ -55,9 +55,10 @@ class RichData @Inject() (
     dataService: RichDataService,
     bundleService: RichBundleService,
     dataDebitService: DataDebitContractService,
+    loggingProvider: LoggingProvider,
     implicit val ec: ExecutionContext) extends HatApiController(components, silhouette, clock, hatServerProvider, configuration) with RichDataJsonFormats {
 
-  private val logger = Logger(this.getClass)
+  private val logger = loggingProvider.logger(this.getClass)
   private val defaultRecordLimit = 1000
 
   /**
