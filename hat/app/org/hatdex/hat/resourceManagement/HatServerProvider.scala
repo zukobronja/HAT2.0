@@ -75,25 +75,29 @@ class HatServerProviderImpl @Inject() (
   implicit val serverInfoTimeout: Duration = configuration.get[FiniteDuration]("resourceManagement.serverIdleTimeout")
 
   def retrieve(hatAddress: String): Future[Option[HatServer]] = {
-    cache.getOrElseUpdate(s"server:$hatAddress", serverInfoTimeout / 2) {
-      (serverProviderActor ? HatServerProviderActor.HatServerRetrieve(hatAddress)) flatMap {
-        case server: HatServer =>
-          logger.debug(s"Got back server $server")
-          Future.successful(Some(server))
-        case error: HatServerDiscoveryException =>
-          logger.debug(s"Got back error $error")
-          Future.failed(error)
-        case message =>
-          logger.warn(s"Unknown message $message from HAT Server provider actor")
-          val error = new HatServerDiscoveryException("Unknown message")
-          Future.failed(error)
-      } recoverWith {
-        case e =>
-          logger.warn(s"Error while retrieving HAT $hatAddress info: ${e.getMessage}")
-          val error = new HatServerDiscoveryException("HAT Server info retrieval failed")
-          Future.failed(error)
+    cache.get(s"server:$hatAddress")
+      .flatMap {
+        case Some(server) => Future.successful(Some(server))
+        case _ =>
+          (serverProviderActor ? HatServerProviderActor.HatServerRetrieve(hatAddress)) map {
+            case server: HatServer =>
+              logger.debug(s"Got back server $server")
+              cache.set(s"server:$hatAddress", server)
+              Some(server)
+            case error: HatServerDiscoveryException =>
+              logger.debug(s"Got back error $error")
+              throw error
+            case message =>
+              logger.warn(s"Unknown message $message from HAT Server provider actor")
+              val error = new HatServerDiscoveryException("Unknown message")
+              throw error
+          } recoverWith {
+            case e =>
+              logger.warn(s"Error while retrieving HAT $hatAddress info: ${e.getMessage}")
+              val error = new HatServerDiscoveryException("HAT Server info retrieval failed")
+              throw error
+          }
       }
-    }
   }
 
 }
