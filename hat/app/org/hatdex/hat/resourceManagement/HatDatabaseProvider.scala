@@ -87,7 +87,7 @@ class HatDatabaseProviderMilliner @Inject() (
   def signupDatabaseConfig(signup: HatSignup): Config = {
     val database = signup.database.get
     val config = Map(
-      "dataSourceClassName" -> "org.postgresql.ds.PGSimpleDataSource",
+      "dataSourceClass" -> "org.postgresql.ds.PGSimpleDataSource",
       "properties" -> Map[String, String](
         "user" -> database.name,
         "password" -> database.password,
