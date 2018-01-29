@@ -24,10 +24,14 @@
 
 package org.hatdex.hat.resourceManagement
 
+import java.util.UUID
+
 import com.google.inject.AbstractModule
 import net.codingwell.scalaguice.ScalaModule
 import org.hatdex.hat.FakeCache
 import org.hatdex.hat.resourceManagement.actors.{ HatServerActor, HatServerProviderActor }
+import org.hatdex.hat.resourceManagement.models.{ DatabaseInstance, DatabaseServer, HatKeys, HatSignup }
+import org.joda.time.DateTime
 import org.specs2.concurrent.ExecutionEnv
 import org.specs2.specification.Scope
 import play.api.cache.AsyncCacheApi
@@ -66,6 +70,28 @@ class HatServiceProviderSpec(implicit ee: ExecutionEnv) extends PlaySpecificatio
       val service = application.injector.instanceOf[HatServerProvider]
 
       service.retrieve(request) must throwA[HatServerDiscoveryException].await(1, 30.seconds)
+    }
+  }
+}
+
+class HatDatabaseProviderSpec(implicit ee: ExecutionEnv) extends PlaySpecification with HatServerProviderContext {
+  "The `signupDatabaseConfig` method" should {
+    "Return a parsed database configuration" in {
+      val service = application.injector.instanceOf[HatDatabaseProviderMilliner]
+      val signup = HatSignup(
+        UUID.randomUUID(),
+        "Bob ThePlumber", "bobtheplumber", "bob@theplumber.com",
+        "testing", "testing", true,
+        DateTime.now(),
+        Some(DatabaseInstance(UUID.randomUUID(), "testhatdb1", "testing")),
+        Some(DatabaseServer(0, "localhost", 5432, DateTime.now(), Seq())),
+        Some(HatKeys("", "")))
+
+      val config = service.signupDatabaseConfig(signup)
+      config.getLong("idleTimeout") must be equalTo 30.seconds.toMillis
+      config.getString("properties.user") must be equalTo "testhatdb1"
+      config.getString("properties.databaseName") must be equalTo "testhatdb1"
+      config.getString("properties.portNumber") must be equalTo "5432"
     }
   }
 }
