@@ -24,22 +24,20 @@
 
 package org.hatdex.hat.resourceManagement
 
-import java.util.UUID
-
 import com.google.inject.AbstractModule
 import net.codingwell.scalaguice.ScalaModule
 import org.hatdex.hat.FakeCache
 import org.hatdex.hat.resourceManagement.actors.{ HatServerActor, HatServerProviderActor }
-import org.hatdex.hat.resourceManagement.models.{ DatabaseInstance, DatabaseServer, HatKeys, HatSignup }
-import org.joda.time.DateTime
+import org.hatdex.hat.utils.{ LoggingProvider, MockLoggingProvider }
+import org.mockito.{ Mockito => MockitoMockito }
 import org.specs2.concurrent.ExecutionEnv
+import org.specs2.mock.Mockito
 import org.specs2.specification.Scope
 import play.api.cache.AsyncCacheApi
 import play.api.inject.guice.GuiceApplicationBuilder
 import play.api.libs.concurrent.AkkaGuiceSupport
 import play.api.test.{ FakeRequest, PlaySpecification }
 import play.api.{ Application, Logger }
-import play.cache.NamedCacheImpl
 
 import scala.concurrent.duration._
 
@@ -62,7 +60,30 @@ class HatServiceProviderSpec(implicit ee: ExecutionEnv) extends PlaySpecificatio
         server.ownerEmail must be equalTo "user@hat.org"
         server.privateKey.getAlgorithm must be equalTo "RSA"
         server.publicKey.getAlgorithm must be equalTo "RSA"
+        there was one(mockLogger).debug(s"Got back server $server")
       } await (1, 30.seconds)
+    }
+
+    "Return HAT Server configuration for a repeated request, cached" in {
+      val request = FakeRequest("GET", "http://hat.hubofallthings.net")
+      val service = application.injector.instanceOf[HatServerProvider]
+      MockitoMockito.reset(mockLogger)
+
+      val result = for {
+        _ <- service.retrieve(request)
+        maybeServer <- service.retrieve(request)
+      } yield {
+        maybeServer must beSome
+        val server = maybeServer.get
+        server.hatName must be equalTo "hat"
+        server.domain must be equalTo "hat.hubofallthings.net"
+        server.ownerEmail must be equalTo "user@hat.org"
+        server.privateKey.getAlgorithm must be equalTo "RSA"
+        server.publicKey.getAlgorithm must be equalTo "RSA"
+        there was no(mockLogger).debug(any)(any)
+      }
+
+      result await (1, 30.seconds)
     }
 
     "Return a failure for an unknown address" in {
@@ -74,29 +95,9 @@ class HatServiceProviderSpec(implicit ee: ExecutionEnv) extends PlaySpecificatio
   }
 }
 
-class HatDatabaseProviderSpec(implicit ee: ExecutionEnv) extends PlaySpecification with HatServerProviderContext {
-  "The `signupDatabaseConfig` method" should {
-    "Return a parsed database configuration" in {
-      val service = application.injector.instanceOf[HatDatabaseProviderMilliner]
-      val signup = HatSignup(
-        UUID.randomUUID(),
-        "Bob ThePlumber", "bobtheplumber", "bob@theplumber.com",
-        "testing", "testing", true,
-        DateTime.now(),
-        Some(DatabaseInstance(UUID.randomUUID(), "testhatdb1", "testing")),
-        Some(DatabaseServer(0, "localhost", 5432, DateTime.now(), Seq())),
-        Some(HatKeys("", "")))
+trait HatServerProviderContext extends Scope with Mockito {
 
-      val config = service.signupDatabaseConfig(signup)
-      config.getLong("idleTimeout") must be equalTo 30.seconds.toMillis
-      config.getString("properties.user") must be equalTo "testhatdb1"
-      config.getString("properties.databaseName") must be equalTo "testhatdb1"
-      config.getString("properties.portNumber") must be equalTo "5432"
-    }
-  }
-}
-
-trait HatServerProviderContext extends Scope {
+  val mockLogger = mock[Logger]
 
   class FakeModule extends AbstractModule with ScalaModule with AkkaGuiceSupport {
     override def configure(): Unit = {
@@ -107,6 +108,7 @@ trait HatServerProviderContext extends Scope {
       bind[HatKeyProvider].to[HatKeyProviderConfig]
       bind[HatServerProvider].to[HatServerProviderImpl]
       bind[AsyncCacheApi].to[FakeCache]
+      bind[LoggingProvider].toInstance(new MockLoggingProvider(mockLogger))
     }
   }
 
