@@ -45,7 +45,6 @@ class Applications @Inject() (
     configuration: Configuration,
     silhouette: Silhouette[HatApiAuthEnvironment],
     hatServerProvider: HatServerProvider,
-    hatServicesService: HatServicesService,
     applicationsService: ApplicationsService,
     clock: Clock)(implicit val ec: ExecutionContext) extends HatApiController(components, silhouette, clock, hatServerProvider, configuration) with ApplicationJsonProtocol {
 
@@ -53,7 +52,7 @@ class Applications @Inject() (
 
   val logger = Logger(this.getClass)
 
-  def applications(): Action[AnyContent] = SecuredAction(WithRole(Owner(), Platform())).async { implicit request =>
+  def applications(): Action[AnyContent] = SecuredAction(WithRole(Owner())).async { implicit request =>
     applicationsService.applicationStatus()
       .map { apps =>
         Ok(Json.toJson(apps))
