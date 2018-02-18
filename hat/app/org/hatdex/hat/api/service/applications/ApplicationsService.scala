@@ -46,15 +46,33 @@ import play.api.{ Configuration, Logger }
 import scala.concurrent.Future
 import scala.concurrent.duration._
 
+class ApplicationStatusCheckService @Inject() (wsClient: WSClient)(implicit val rec: RemoteExecutionContext) {
+
+  def status(statusCheck: ApplicationStatus.Status, token: String): Future[Boolean] = {
+    statusCheck match {
+      case s: ApplicationStatus.Internal => status(s, token)
+      case s: ApplicationStatus.External => status(s, token)
+    }
+  }
+
+  protected def status(statusCheck: ApplicationStatus.Internal, token: String): Future[Boolean] =
+    Future.successful(true)
+
+  protected def status(statusCheck: ApplicationStatus.External, token: String): Future[Boolean] =
+    wsClient.url(statusCheck.statusUrl)
+      .withHttpHeaders("x-auth-token" -> token)
+      .get()
+      .map(_.status == statusCheck.expectedStatus)
+}
+
 class ApplicationsService @Inject() (
-    wsClient: WSClient,
     configuration: Configuration,
     cache: AsyncCacheApi,
     richDataService: RichDataService,
     dataDebitContractService: DataDebitContractService,
+    statusCheckService: ApplicationStatusCheckService,
     trustedApplicationProvider: TrustedApplicationProvider,
-    usersService: UsersService,
-    silhouette: Silhouette[HatApiAuthEnvironment])(rec: RemoteExecutionContext)(implicit val ec: DalExecutionContext) {
+    silhouette: Silhouette[HatApiAuthEnvironment])(implicit val ec: DalExecutionContext) {
 
   private val logger = Logger(this.getClass)
   private val applicationsCacheDuration: FiniteDuration = 30.minutes
@@ -98,16 +116,23 @@ class ApplicationsService @Inject() (
     }
 
     // Set up the app
-    for {
-      _ <- maybeDataDebitSetup.getOrElse(Future.successful(())) // If data debit was there, must have been setup successfully
-      _ <- applicationSetupStatusUpdate(application, enabled = true)(hat.db) // Update status
-      _ <- cache.remove(appCacheKey(application))
-      _ <- cache.remove(s"apps:${hat.domain}")
-      app <- applicationStatus(application.application.id) // Refetch all information
+    val appSetup = for {
+      _ ← maybeDataDebitSetup.getOrElse(Future.successful(())) // If data debit was there, must have been setup successfully
+      _ ← applicationSetupStatusUpdate(application, enabled = true)(hat.db) // Update status
+      _ ← cache.remove(appCacheKey(application))
+      _ ← cache.remove(s"apps:${hat.domain}")
+      app ← applicationStatus(application.application.id) // Refetch all information
         .map(_.getOrElse(throw new RuntimeException("Application information not found during setup")))
     } yield {
       logger.debug(s"Application status for ${app.application.id}: active = ${app.active}, setup = ${app.setup}, needs updating = ${app.needsUpdating}")
       app
+    }
+
+    appSetup.recoverWith {
+      case e: RuntimeException ⇒
+        application.application.dataDebitId.map(dataDebitContractService.dataDebitDisable(_)(hat.db))
+          .getOrElse(Future.successful(()))
+          .map(_ ⇒ throw e)
     }
   }
 
@@ -151,32 +176,18 @@ class ApplicationsService @Inject() (
    * Check application status - assumes application has been set up, so only checks if remote status still ok
    */
   protected def checkStatus(app: Application)(implicit hatServer: HatServer, user: HatUser, requestHeader: RequestHeader): Future[(Boolean, String)] = {
-    app.status match {
-      case ApplicationStatus.Internal(_, _) =>
-        for {
-          token <- applicationToken(user, app)
-          dd <- checkDataDebit(app)
-        } yield (dd, token.accessToken)
-      case ApplicationStatus.External(_, statusUrl, expectedStatus, _) =>
-        for {
-          token <- applicationToken(user, app)
-          dd <- checkDataDebit(app)
-          status <- wsClient.url(statusUrl)
-            .withHttpHeaders("x-auth-token" -> token.accessToken)
-            .get()
-            .map(_.status == expectedStatus)
-        } yield (dd || status, token.accessToken)
-    }
+    for {
+      token <- applicationToken(user, app)
+      dd <- checkDataDebit(app)
+      status <- statusCheckService.status(app.status, token.accessToken)
+    } yield (dd && status, token.accessToken)
   }
 
   private def mostRecentDataTime(app: Application)(implicit hat: HatServer): Future[Option[DateTime]] = {
-    app.status match {
-      case ApplicationStatus.Internal(_, Some(checkEndpoint)) =>
-        richDataService.propertyDataMostRecentDate(Seq(EndpointQuery(checkEndpoint, None, None, None)))(hat.db)
-      case ApplicationStatus.External(_, _, _, Some(checkEndpoint)) =>
-        richDataService.propertyDataMostRecentDate(Seq(EndpointQuery(checkEndpoint, None, None, None)))(hat.db)
-      case _ =>
-        Future.successful(None)
+    app.status.recentDataCheckEndpoint map { endpoint ⇒
+      richDataService.propertyDataMostRecentDate(Seq(EndpointQuery(endpoint, None, None, None)))(hat.db)
+    } getOrElse {
+      Future.successful(None)
     }
   }
 

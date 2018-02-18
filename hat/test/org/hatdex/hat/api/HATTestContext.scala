@@ -32,7 +32,7 @@ import com.amazonaws.services.s3.AmazonS3
 import com.atlassian.jwt.core.keys.KeyUtils
 import com.google.inject.name.Named
 import com.google.inject.{ AbstractModule, Provides }
-import com.mohiva.play.silhouette.api.Environment
+import com.mohiva.play.silhouette.api.{ Environment, Silhouette, SilhouetteProvider }
 import com.mohiva.play.silhouette.test._
 import net.codingwell.scalaguice.ScalaModule
 import org.hatdex.hat.FakeCache
@@ -110,14 +110,15 @@ trait HATTestContext extends Scope with Mockito {
 
   val mockLogger = mock[Logger]
 
+  lazy val remoteEC = new RemoteExecutionContext(application.actorSystem)
+
   /**
    * A fake Guice module.
    */
   class FakeModule extends AbstractModule with ScalaModule {
-    lazy val remoteEC = new RemoteExecutionContext(application.actorSystem)
-
     def configure(): Unit = {
       bind[Environment[HatApiAuthEnvironment]].toInstance(environment)
+      bind[Silhouette[HatApiAuthEnvironment]].to[SilhouetteProvider[HatApiAuthEnvironment]]
       bind[HatServerProvider].toInstance(new FakeHatServerProvider(hatServer))
       bind[FileManager].to[FileManagerS3]
       bind[MailTokenService[MailTokenUser]].to[MailTokenUserService]
