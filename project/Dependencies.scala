@@ -60,13 +60,12 @@ object Dependencies {
         private val bouncyCastleVersion = "1.59"
         val bouncyCastle = "org.bouncycastle" % "bcprov-jdk15on" % bouncyCastleVersion
         val bouncyCastlePkix = "org.bouncycastle" % "bcpkix-jdk15on" % bouncyCastleVersion
-        val atlassianJwtVersion = "1.6.2"
+        val atlassianJwtVersion = "2.0.1"
         val atlassianJwtCore = "com.atlassian.jwt" % "jwt-core" % atlassianJwtVersion
-        val atlassianJwtApi = "com.atlassian.jwt" % "jwt-api" % atlassianJwtVersion
       }
 
       object Silhouette {
-        val version = "5.1.2"
+        val version = "5.1.3"
         val passwordBcrypt = "com.mohiva" %% "play-silhouette-password-bcrypt" % version
         val persistence = "com.mohiva" %% "play-silhouette-persistence" % version
         val cryptoJca = "com.mohiva" %% "play-silhouette-crypto-jca" % version
@@ -85,15 +84,15 @@ object Dependencies {
     object Utils {
       val pegdown = "org.pegdown" % "pegdown" % "1.6.0"
       val awsJavaSdk = "com.amazonaws" % "aws-java-sdk" % "1.10.64"
-      val awsJavaS3Sdk = "com.amazonaws" % "aws-java-sdk-s3" % "1.11.280"
+      val awsJavaS3Sdk = "com.amazonaws" % "aws-java-sdk-s3" % "1.11.281"
       val prettyTime = "org.ocpsoft.prettytime" % "prettytime" % "4.0.1.Final"
       val nbvcxz = "me.gosimple" % "nbvcxz" % "1.4.0"
     }
 
     object Akka {
-      private val version = "2.5.4"
+      private val version = "2.5.8"
       val slf4j = "com.typesafe.akka" %% "akka-slf4j" % version
-      val httpCore = "com.typesafe.akka" %% "akka-http-core" % "10.0.8"
+      val httpCore = "com.typesafe.akka" %% "akka-http-core" % "10.0.11"
       val akkaStream = "com.typesafe.akka" %% "akka-stream" % version
       val akkaActor = "com.typesafe.akka" %% "akka-actor" % version
       val akkaTestkit = "com.typesafe.akka" %% "akka-testkit" % version

@@ -25,7 +25,6 @@ lazy val hat = project
       Library.Play.Silhouette.cryptoJca,
       Library.Play.Silhouette.silhouette,
       Library.Play.Jwt.atlassianJwtCore,
-      Library.Play.Jwt.atlassianJwtApi,
       Library.Play.Jwt.bouncyCastlePkix,
       Library.Specs2.core,
       Library.Specs2.matcherExtra,
