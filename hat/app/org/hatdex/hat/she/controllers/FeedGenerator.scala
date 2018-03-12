@@ -33,19 +33,19 @@ import akka.stream.stage.GraphStage
 import akka.stream.{ ActorMaterializer, FanInShape2, SourceShape }
 import com.mohiva.play.silhouette.api.Silhouette
 import com.mohiva.play.silhouette.api.util.Clock
+import org.hatdex.hat.api.json.DataFeedItemJsonProtocol
 import org.hatdex.hat.api.models._
+import org.hatdex.hat.api.models.applications.DataFeedItem
 import org.hatdex.hat.api.service.richData.RichDataService
 import org.hatdex.hat.authentication.{ HatApiAuthEnvironment, HatApiController, WithRole }
 import org.hatdex.hat.resourceManagement._
-import org.hatdex.hat.she.functions._
 import org.hatdex.hat.she.models.FunctionConfigurationJsonProtocol
 import org.hatdex.hat.she.service._
 import org.hatdex.hat.utils.HatBodyParsers
-import org.joda.time.{ DateTime }
+import org.joda.time.DateTime
 import play.api.libs.json.Json
 import play.api.mvc._
 import play.api.{ Configuration, Logger }
-import scala.collection.JavaConverters._
 
 import scala.annotation.tailrec
 import scala.concurrent.ExecutionContext
@@ -115,7 +115,7 @@ class FeedGenerator @Inject() (
 
   }
 
-  implicit def dataFeedItemOrdering: Ordering[DataFeedItem] = Ordering.fromLessThan(_.date isAfter _.date)
+  protected implicit def dataFeedItemOrdering: Ordering[DataFeedItem] = Ordering.fromLessThan(_.date isAfter _.date)
 
 }
 

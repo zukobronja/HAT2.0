@@ -28,10 +28,11 @@ import java.util.UUID
 
 import akka.NotUsed
 import akka.stream.scaladsl.Source
+import org.hatdex.hat.api.models.applications._
 import org.hatdex.hat.api.models.{ EndpointQuery, EndpointQueryFilter, FilterOperator, PropertyQuery }
 import org.hatdex.hat.api.service.richData.RichDataService
 import org.hatdex.hat.resourceManagement.HatServer
-import org.hatdex.hat.she.functions._
+import org.hatdex.hat.she.controllers.SourceMergeSorter
 import org.joda.time.{ DateTime, DateTimeZone }
 import org.joda.time.format.ISODateTimeFormat
 import play.api.Logger
@@ -61,24 +62,41 @@ class GoogleCalendarMapper(richDataService: RichDataService) extends DataEndpoin
       None
     }
 
-    val propertyQuery = PropertyQuery(
+    val eventDateTimePropertyQuery = PropertyQuery(
       List(
         EndpointQuery("calendar/google/events", None, Some(Seq(
-          dateFilter.map(f => EndpointQueryFilter("start.date", None, f))).flatten), None),
-        EndpointQuery("calendar/google/events", None, Some(Seq(
           dateTimeFilter.map(f => EndpointQueryFilter("start.dateTime", None, f))).flatten), None)),
-      Some("created"), Some("descending"), None)
+      Some("start.dateTime"), Some("descending"), None)
 
-    val feed: Future[Seq[DataFeedItem]] = richDataService.propertyData(propertyQuery.endpoints, propertyQuery.orderBy,
-      orderingDescending = propertyQuery.ordering.contains("descending"), skip = 0, limit = None, createdAfter = None)(hatServer.db)
-      .map {
-        _.map(item ⇒ mapGoogleCalendarEvent(item.recordId.get, item.data))
+    val eventDatePropertyQuery = PropertyQuery(
+      List(
+        EndpointQuery("calendar/google/events", None, Some(Seq(
+          dateFilter.map(f => EndpointQueryFilter("start.date", None, f))).flatten), None)),
+      Some("start.date"), Some("descending"), None)
+
+    val eventDateTimeFeed: Future[Seq[DataFeedItem]] = richDataService.propertyData(eventDateTimePropertyQuery.endpoints, eventDateTimePropertyQuery.orderBy,
+      orderingDescending = eventDateTimePropertyQuery.ordering.contains("descending"), skip = 0, limit = None, createdAfter = None)(hatServer.db)
+      .map { events ⇒
+        (events.head :: events.sliding(2).collect { case Seq(a, b) if a.data \ "id" != b.data \ "id" => b }.toList)
+          .map(item ⇒ mapGoogleCalendarEvent(item.recordId.get, item.data))
           .collect { case Success(x) => x }
       }
 
-    Source.fromFuture(feed)
-      .mapConcat(f ⇒ f.toList)
+    val eventDateFeed: Future[Seq[DataFeedItem]] = richDataService.propertyData(eventDatePropertyQuery.endpoints, eventDatePropertyQuery.orderBy,
+      orderingDescending = eventDatePropertyQuery.ordering.contains("descending"), skip = 0, limit = None, createdAfter = None)(hatServer.db)
+      .map { events ⇒
+        (events.head :: events.sliding(2).collect { case Seq(a, b) if a.data \ "id" != b.data \ "id" => b }.toList)
+          .map(item ⇒ mapGoogleCalendarEvent(item.recordId.get, item.data))
+          .collect { case Success(x) => x }
+      }
+
+    new SourceMergeSorter().mergeWithSorter(Seq(
+      Source.fromFuture(eventDateTimeFeed).mapConcat(f ⇒ f.toList),
+      Source.fromFuture(eventDateFeed).mapConcat(f ⇒ f.toList)))
+
   }
+
+  protected implicit def dataFeedItemOrdering: Ordering[DataFeedItem] = Ordering.fromLessThan(_.date isAfter _.date)
 
   protected def mapGoogleCalendarEvent(recordId: UUID, content: JsValue): Try[DataFeedItem] = {
     for {
@@ -93,7 +111,7 @@ class GoogleCalendarMapper(richDataService: RichDataService) extends DataEndpoin
         Some(s"${timeIntervalString._1} ${timeIntervalString._2.getOrElse("")}"), None))
       location <- Try(DataFeedItemLocation(
         geo = None,
-        address = (content \ "location").asOpt[String].map(l ⇒ LocationAddress("", "", Some(l), None, None)), // TODO integrate with geocoding API for full location information?
+        address = (content \ "location").asOpt[String].map(l ⇒ LocationAddress(None, None, Some(l), None, None)), // TODO integrate with geocoding API for full location information?
         tags = None))
     } yield {
       val title = DataFeedItemTitle(s"${(content \ "summary").as[String]}", Some("event"))
@@ -378,8 +396,8 @@ class TwitterFeedMapper(richDataService: RichDataService) extends DataEndpointMa
         address = (content \ "place").asOpt[JsObject]
           .map(address =>
             LocationAddress(
-              (address \ "country").as[String],
-              (address \ "name").as[String],
+              (address \ "country").asOpt[String],
+              (address \ "name").asOpt[String],
               None, None, None)),
         tags = None))
         .toOption
