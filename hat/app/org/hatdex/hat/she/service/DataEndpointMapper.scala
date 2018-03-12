@@ -32,7 +32,7 @@ import org.hatdex.hat.api.models.applications._
 import org.hatdex.hat.api.models.{ EndpointQuery, EndpointQueryFilter, FilterOperator, PropertyQuery }
 import org.hatdex.hat.api.service.richData.RichDataService
 import org.hatdex.hat.resourceManagement.HatServer
-import org.hatdex.hat.she.controllers.SourceMergeSorter
+import org.hatdex.hat.utils.SourceMergeSorter
 import org.joda.time.{ DateTime, DateTimeZone }
 import org.joda.time.format.ISODateTimeFormat
 import play.api.Logger
@@ -55,12 +55,6 @@ class GoogleCalendarMapper(richDataService: RichDataService) extends DataEndpoin
     else {
       None
     }
-    val dateFilter = if (fromDate.isDefined) {
-      Some(FilterOperator.Between(Json.toJson(fromDate.map(_.toString("yyyy-MM-dd"))), Json.toJson(untilDate.map(_.toString("yyyy-MM-dd")))))
-    }
-    else {
-      None
-    }
 
     val eventDateTimePropertyQuery = PropertyQuery(
       List(
@@ -68,32 +62,39 @@ class GoogleCalendarMapper(richDataService: RichDataService) extends DataEndpoin
           dateTimeFilter.map(f => EndpointQueryFilter("start.dateTime", None, f))).flatten), None)),
       Some("start.dateTime"), Some("descending"), None)
 
+    val dateFilter = if (fromDate.isDefined) {
+      Some(FilterOperator.Between(Json.toJson(fromDate.map(_.toString("yyyy-MM-dd"))), Json.toJson(untilDate.map(_.toString("yyyy-MM-dd")))))
+    }
+    else {
+      None
+    }
+
     val eventDatePropertyQuery = PropertyQuery(
       List(
         EndpointQuery("calendar/google/events", None, Some(Seq(
           dateFilter.map(f => EndpointQueryFilter("start.date", None, f))).flatten), None)),
       Some("start.date"), Some("descending"), None)
 
-    val eventDateTimeFeed: Future[Seq[DataFeedItem]] = richDataService.propertyData(eventDateTimePropertyQuery.endpoints, eventDateTimePropertyQuery.orderBy,
-      orderingDescending = eventDateTimePropertyQuery.ordering.contains("descending"), skip = 0, limit = None, createdAfter = None)(hatServer.db)
-      .map { events ⇒
-        (events.head :: events.sliding(2).collect { case Seq(a, b) if a.data \ "id" != b.data \ "id" => b }.toList)
-          .map(item ⇒ mapGoogleCalendarEvent(item.recordId.get, item.data))
-          .collect { case Success(x) => x }
-      }
-
-    val eventDateFeed: Future[Seq[DataFeedItem]] = richDataService.propertyData(eventDatePropertyQuery.endpoints, eventDatePropertyQuery.orderBy,
-      orderingDescending = eventDatePropertyQuery.ordering.contains("descending"), skip = 0, limit = None, createdAfter = None)(hatServer.db)
-      .map { events ⇒
-        (events.head :: events.sliding(2).collect { case Seq(a, b) if a.data \ "id" != b.data \ "id" => b }.toList)
-          .map(item ⇒ mapGoogleCalendarEvent(item.recordId.get, item.data))
-          .collect { case Success(x) => x }
-      }
-
     new SourceMergeSorter().mergeWithSorter(Seq(
-      Source.fromFuture(eventDateTimeFeed).mapConcat(f ⇒ f.toList),
-      Source.fromFuture(eventDateFeed).mapConcat(f ⇒ f.toList)))
+      dataFeed(eventDateTimePropertyQuery),
+      dataFeed(eventDatePropertyQuery)))
 
+  }
+
+  protected def dataFeed(propertyQuery: PropertyQuery)(implicit hatServer: HatServer, ec: ExecutionContext): Source[DataFeedItem, NotUsed] = {
+    val eventualFeed: Future[Seq[DataFeedItem]] = richDataService.propertyData(propertyQuery.endpoints, propertyQuery.orderBy,
+      orderingDescending = propertyQuery.ordering.contains("descending"), skip = 0, limit = None, createdAfter = None)(hatServer.db)
+      .map { events ⇒
+        if (events.nonEmpty) {
+          (events.head :: events.sliding(2).collect { case Seq(a, b) if a.data \ "id" != b.data \ "id" => b }.toList)
+            .map(item ⇒ mapGoogleCalendarEvent(item.recordId.get, item.data))
+            .collect { case Success(x) => x }
+        }
+        else {
+          Seq()
+        }
+      }
+    Source.fromFuture(eventualFeed).mapConcat(f ⇒ f.toList)
   }
 
   protected implicit def dataFeedItemOrdering: Ordering[DataFeedItem] = Ordering.fromLessThan(_.date isAfter _.date)

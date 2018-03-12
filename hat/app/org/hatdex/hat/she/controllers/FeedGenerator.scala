@@ -41,7 +41,7 @@ import org.hatdex.hat.authentication.{ HatApiAuthEnvironment, HatApiController, 
 import org.hatdex.hat.resourceManagement._
 import org.hatdex.hat.she.models.FunctionConfigurationJsonProtocol
 import org.hatdex.hat.she.service._
-import org.hatdex.hat.utils.HatBodyParsers
+import org.hatdex.hat.utils.{ HatBodyParsers, SourceMergeSorter }
 import org.joda.time.DateTime
 import play.api.libs.json.Json
 import play.api.mvc._
@@ -84,8 +84,8 @@ class FeedGenerator @Inject() (
     val data: Source[DataFeedItem, NotUsed] = dataMappers.get(endpoint)
       .map {
         _.feed(
-          since.map(new DateTime(_)).orElse(Some(DateTime.now().minusMonths(6))),
-          until.map(new DateTime(_)).orElse(Some(DateTime.now().plusMonths(3))))
+          since.map(t ⇒ new DateTime(t * 1000L)).orElse(Some(DateTime.now().minusMonths(6))),
+          until.map(t ⇒ new DateTime(t * 1000L)).orElse(Some(DateTime.now().plusMonths(3))))
       } getOrElse {
         logger.debug(s"No mapper for $endpoint")
         Source.empty[DataFeedItem]
@@ -102,8 +102,8 @@ class FeedGenerator @Inject() (
     logger.debug(s"Mapping all known endpoints' data to feed")
     val sources = dataMappers.values.map {
       _.feed(
-        since.map(new DateTime(_)).orElse(Some(DateTime.now().minusMonths(6))),
-        until.map(new DateTime(_)).orElse(Some(DateTime.now().plusMonths(3))))
+        since.map(t ⇒ new DateTime(t * 1000L)).orElse(Some(DateTime.now().minusMonths(6))),
+        until.map(t ⇒ new DateTime(t * 1000L)).orElse(Some(DateTime.now().plusMonths(3))))
     }
     val sorter = new SourceMergeSorter()
     val data: Source[DataFeedItem, NotUsed] = sorter.mergeWithSorter(sources.toSeq)
@@ -118,47 +118,3 @@ class FeedGenerator @Inject() (
   protected implicit def dataFeedItemOrdering: Ordering[DataFeedItem] = Ordering.fromLessThan(_.date isAfter _.date)
 
 }
-
-class SourceMergeSorter {
-  def mergeWithSorter[A](originSources: Seq[Source[A, NotUsed]])(implicit ordering: Ordering[A]): Source[A, NotUsed] =
-    merge(originSources, sorter[A])
-
-  private def merge[A](originSources: Seq[Source[A, NotUsed]], f: (Source[A, NotUsed], Source[A, NotUsed]) => Source[A, NotUsed]): Source[A, NotUsed] =
-    originSources match {
-      case Nil =>
-        Source.empty[A]
-
-      case sources =>
-        @tailrec
-        def reducePairs(sources: Seq[Source[A, NotUsed]]): Source[A, NotUsed] =
-          sources match {
-            case Seq(s) =>
-              s
-
-            case _ =>
-              reducePairs(sources.grouped(2).map {
-                case Seq(a)    => a
-                case Seq(a, b) => f(a, b)
-              }.toSeq)
-          }
-
-        reducePairs(sources)
-    }
-
-  private def sorter[A](s1: Source[A, NotUsed], s2: Source[A, NotUsed])(implicit ord: Ordering[A]): Source[A, NotUsed] =
-    combineSources(new MergeSorted[A], s1, s2) { (_, _) => NotUsed }
-
-  private def combineSources[A, MatIn0, MatIn1, Mat](
-    combinator: GraphStage[FanInShape2[A, A, A]],
-    s0: Source[A, MatIn0],
-    s1: Source[A, MatIn1])(combineMat: (MatIn0, MatIn1) => Mat): Source[A, Mat] =
-
-    Source.fromGraph(GraphDSL.create(s0, s1)(combineMat) { implicit builder => (s0, s1) =>
-      import GraphDSL.Implicits._
-      val merge = builder.add(combinator)
-      s0 ~> merge.in0
-      s1 ~> merge.in1
-      SourceShape(merge.out)
-    })
-}
-
