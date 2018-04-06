@@ -70,7 +70,8 @@ class FeedGenerator @Inject() (
     "fitbit/activity" → new FitbitActivityMapper(),
     "fitbit/activity/day/summary" → new FitbitActivityDaySummaryMapper(),
     "calendar/google/events" → new GoogleCalendarMapper(),
-    "notables/feed" → new NotablesFeedMapper())
+    "notables/feed" → new NotablesFeedMapper(),
+    "spotify/feed" -> new SpotifyFeedMapper())
 
   def getFeed(endpoint: String, since: Option[Long], until: Option[Long]): Action[AnyContent] = SecuredAction(WithRole(Owner())).async { implicit request =>
     val data: Source[DataFeedItem, NotUsed] = dataMappers.get(endpoint)
